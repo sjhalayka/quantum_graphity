@@ -1,5 +1,20 @@
 ﻿#include "main.h"
 
+
+real_type intersect_AABB(const vector_3 min_location, const vector_3 max_location, const vector_3& point)
+{
+	if (min_location.x <= point.x && max_location.x >= point.x &&
+		min_location.y <= point.y && max_location.y >= point.y &&
+		min_location.z <= point.z && max_location.z >= point.z)
+	{
+		return true;
+	}
+
+	return false;
+}
+
+
+
 real_type intersect_AABB(const vector_3 min_location, const vector_3 max_location, const vector_3 ray_origin, const vector_3 ray_dir, real_type& tmin, real_type& tmax)
 {
 	tmin = (min_location.x - ray_origin.x) / ray_dir.x;
