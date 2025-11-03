@@ -117,10 +117,40 @@ int main(int argc, char** argv)
 	for (long long unsigned int i = 0; i < n; i++)
 		vertices.push_back(random_unit_vector() * emitter_radius_geometrized);
 
-	camera_w = emitter_radius_geometrized * 2;
+	camera_w = emitter_radius_geometrized * 10;
+
+	for (size_t x = 0; x < 100; x++)
+	{
+		cout << x << " " << 100 << endl;
+
+		vector<vector_3> backup_points = vertices;
+
+		for (long long unsigned int i = 0; i < n; i++)
+		{
+			vector_3 a(0, 0, 0);
+
+			for (long long unsigned int j = 0; j < n; j++)
+			{
+				if (i == j)
+					continue;
+
+				custom_math::vector_3 grav_dir = backup_points[j] - backup_points[i];
+
+				double distance = grav_dir.length();
+				grav_dir.normalize();
+				custom_math::vector_3 accel = -grav_dir / pow(distance, 1.0);
+
+				a += accel;
+			}
+
+			vertices[i] += a;
+			vertices[i].normalize();
+		}
+	}
 
 
-	// to do: get vertices here
+
+
 	cout << setprecision(20) << endl;
 
 	glutInit(&argc, argv);
