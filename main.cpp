@@ -117,11 +117,13 @@ int main(int argc, char** argv)
 	for (long long unsigned int i = 0; i < n; i++)
 		vertices.push_back(random_unit_vector() * emitter_radius_geometrized);
 
-	camera_w = emitter_radius_geometrized * 10;
+	camera_w = emitter_radius_geometrized * 1.1;
 
-	for (size_t x = 0; x < 100; x++)
+	long long unsigned int num_repulsion_rounds = 10;
+
+	for (size_t x = 0; x < num_repulsion_rounds; x++)
 	{
-		cout << x << " " << 100 << endl;
+		cout << x << " " << num_repulsion_rounds << endl;
 
 		vector<vector_3> backup_points = vertices;
 
@@ -145,9 +147,9 @@ int main(int argc, char** argv)
 
 			vertices[i] += a;
 			vertices[i].normalize();
+			vertices[i] *= emitter_radius_geometrized;
 		}
 	}
-
 
 
 
