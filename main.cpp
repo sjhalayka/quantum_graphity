@@ -1,75 +1,11 @@
 ﻿#include "main.h"
 
 
-bool intersect_AABB(const vector_3 min_location, const vector_3 max_location, const vector_3& point)
-{
-	if (min_location.x <= point.x && max_location.x >= point.x &&
-		min_location.y <= point.y && max_location.y >= point.y &&
-		min_location.z <= point.z && max_location.z >= point.z)
-	{
-		return true;
-	}
+vector<vector_3> vertices;
 
-	return false;
-}
+// E = N(N - 1) / 2
 
 
-
-real_type intersect_AABB(const vector_3 min_location, const vector_3 max_location, const vector_3 ray_origin, const vector_3 ray_dir, real_type& tmin, real_type& tmax)
-{
-	tmin = (min_location.x - ray_origin.x) / ray_dir.x;
-	tmax = (max_location.x - ray_origin.x) / ray_dir.x;
-
-	if (tmin > tmax)
-		swap(tmin, tmax);
-
-	real_type tymin = (min_location.y - ray_origin.y) / ray_dir.y;
-	real_type tymax = (max_location.y - ray_origin.y) / ray_dir.y;
-
-	if (tymin > tymax)
-		swap(tymin, tymax);
-
-	if ((tmin > tymax) || (tymin > tmax))
-		return 0;
-
-	if (tymin > tmin)
-		tmin = tymin;
-
-	if (tymax < tmax)
-		tmax = tymax;
-
-	real_type tzmin = (min_location.z - ray_origin.z) / ray_dir.z;
-	real_type tzmax = (max_location.z - ray_origin.z) / ray_dir.z;
-
-	if (tzmin > tzmax)
-		swap(tzmin, tzmax);
-
-	if ((tmin > tzmax) || (tzmin > tmax))
-		return 0;
-
-	if (tzmin > tmin)
-		tmin = tzmin;
-
-	if (tzmax < tmax)
-		tmax = tzmax;
-
-	if (tmin < 0 || tmax < 0)
-		return 0;
-
-	vector_3 ray_hit_start = ray_origin;
-	ray_hit_start.x += ray_dir.x * tmin;
-	ray_hit_start.y += ray_dir.y * tmin;
-	ray_hit_start.z += ray_dir.z * tmin;
-
-	vector_3 ray_hit_end = ray_origin;
-	ray_hit_end.x += ray_dir.x * tmax;
-	ray_hit_end.y += ray_dir.y * tmax;
-	ray_hit_end.z += ray_dir.z * tmax;
-
-	real_type l = (ray_hit_end - ray_hit_start).length();
-
-	return l;
-}
 
 vector_3 random_unit_vector(void)
 {
@@ -83,113 +19,28 @@ vector_3 random_unit_vector(void)
 	return vector_3(x, y, z).normalize();
 }
 
-std::optional<real_type> intersect(
+bool intersect_AABB(const vector_3 min_location, const vector_3 max_location, const vector_3& point)
+{
+	if (min_location.x <= point.x && max_location.x >= point.x &&
+		min_location.y <= point.y && max_location.y >= point.y &&
+		min_location.z <= point.z && max_location.z >= point.z)
+	{
+		return true;
+	}
+
+	return false;
+}
+
+bool intersect(
 	const vector_3 location,
 	const vector_3 normal,
 	const real_type receiver_distance,
 	const real_type receiver_radius)
 {
-	const vector_3 circle_origin(receiver_distance, 0, 0);
-
-	if (normal.dot(circle_origin) <= 0)
-		return std::nullopt;
-
 	vector_3 min_location(-receiver_radius + receiver_distance, -receiver_radius, -receiver_radius);
 	vector_3 max_location(receiver_radius + receiver_distance, receiver_radius, receiver_radius);
 
-	real_type tmin = 0, tmax = 0;
-
-	real_type AABB_hit = intersect_AABB(min_location, max_location, location, normal, tmin, tmax);
-
-	if (AABB_hit > 0)
-		return AABB_hit;
-
-	return std::nullopt;
-}
-
-vector_3 random_tangent_vector(const vector_3& point_on_sphere)
-{
-	// Normalize to ensure it's on unit sphere
-	vector_3 normal = point_on_sphere;
-	normal.normalize();
-
-	// Choose an arbitrary vector that's not parallel to normal
-	vector_3 arbitrary;
-	if (fabs(normal.x) > 0.9)
-		arbitrary = vector_3(0, 1, 0);  // If normal is mostly along x, use y
-	else
-		arbitrary = vector_3(1, 0, 0);  // Otherwise use x
-
-	// Get first basis vector perpendicular to normal
-	vector_3 tangent1 = normal.cross(arbitrary);
-	tangent1.normalize();
-
-	// Get second basis vector perpendicular to both
-	vector_3 tangent2 = normal.cross(tangent1);
-	tangent2.normalize();
-
-	// Generate random angle for rotation in tangent plane
-	real_type angle = dis(generator) * 2.0 * pi;
-
-	// Combine the two tangent vectors with random weights
-	vector_3 result = tangent1 * cos(angle) + tangent2 * sin(angle);
-
-	return result.normalize();
-}
-
-
-vector_3 random_cosine_weighted_hemisphere(const vector_3& normal)
-{
-	// Generate two random numbers
-	real_type u1 = dis(generator);
-	real_type u2 = dis(generator);
-
-	// Malley's method
-	// (cosine-weighted hemisphere sampling)
-	// Sample uniformly on a disk, 
-	// then project up to hemisphere
-	real_type r = sqrt(u1);
-	real_type theta = 2.0 * pi * u2;
-
-	// Point on unit disk
-	real_type x = r * cos(theta);
-	real_type y = r * sin(theta);
-	real_type z = sqrt(1.0 - u1); // Height above disk
-
-	// Create orthonormal basis around normal
-	vector_3 n = normal;
-	n.normalize();
-
-	// Choose an arbitrary vector not parallel to normal
-	vector_3 arbitrary;
-	if (fabs(n.x) > 0.9)
-		arbitrary = vector_3(0, 1, 0);
-	else
-		arbitrary = vector_3(1, 0, 0);
-
-	// Create tangent and bitangent
-	vector_3 tangent = n.cross(arbitrary);
-	tangent.normalize();
-
-	vector_3 bitangent = n.cross(tangent);
-	bitangent.normalize();
-
-	// Transform from local coordinates
-	// to world coordinates
-	vector_3 result;
-	result.x = tangent.x * x + 
-		bitangent.x * y + 
-		n.x * z;
-
-	result.y = tangent.y * x + 
-		bitangent.y * y + 
-		n.y * z;
-
-	result.z = tangent.z * x + 
-		bitangent.z * y + 
-		n.z * z;
-
-	return result.normalize();
+	return intersect_AABB(min_location, max_location, location);
 }
 
 
@@ -203,51 +54,52 @@ real_type get_intersecting_line_density(
 	real_type count = 0;
 	real_type count_plus = 0;
 
-	generator.seed(static_cast<unsigned>(0));
+	//generator.seed(static_cast<unsigned>(0));
 
-	for (long long unsigned int i = 0; i < n; i++)
-	{
-		if (i % 100000000 == 0)
-			cout << float(i) / float(n) << endl;
+	//for (long long unsigned int i = 0; i < n; i++)
+	//{
+	//	if (i % 100000000 == 0)
+	//		cout << float(i) / float(n) << endl;
 
-		// Random hemisphere outward
-		vector_3 location = random_unit_vector();
+	//	// Random hemisphere outward
+	//	vector_3 location = random_unit_vector();
 
-		location.x *= emitter_radius;
-		location.y *= emitter_radius;
-		location.z *= emitter_radius;
+	//	location.x *= emitter_radius;
+	//	location.y *= emitter_radius;
+	//	location.z *= emitter_radius;
 
-		vector_3 surface_normal = location;
-		surface_normal.normalize();
+	//	vector_3 surface_normal = location;
+	//	surface_normal.normalize();
 
-		vector_3 normal = 
-			random_cosine_weighted_hemisphere(
-				surface_normal);
+	//	vector_3 normal = 
+	//		random_cosine_weighted_hemisphere(
+	//			surface_normal);
 
-		std::optional<real_type> i_hit = intersect(
-			location, normal, 
-			receiver_distance, receiver_radius);
+	//	bool i_hit = intersect(
+	//		location, normal, 
+	//		receiver_distance, receiver_radius);
 
-		if (i_hit)
-			count += *i_hit / (2.0 * receiver_radius);
-	
-		i_hit = intersect(
-			location, normal,
-			receiver_distance_plus, receiver_radius);
+	//	//if (i_hit)
+	//	//	count += *i_hit / (2.0 * receiver_radius);
+	//
+	//	i_hit = intersect(
+	//		location, normal,
+	//		receiver_distance_plus, receiver_radius);
 
-		if (i_hit)
-			count_plus += *i_hit / (2.0 * receiver_radius);
-	}
+	//	//if (i_hit)
+	//	//	count_plus += *i_hit / (2.0 * receiver_radius);
+	//}
 
 	return count_plus - count;
 }
 
 int main(int argc, char** argv)
 {
-	ofstream outfile("ratio");
+	// Field line count
+	const long long unsigned int n = 100;
 
 	const real_type emitter_radius_geometrized =
-		sqrt(1e8 * log(2.0) / pi);
+		sqrt(n * log(2.0) / pi);
 
 	const real_type receiver_radius_geometrized =
 		emitter_radius_geometrized * 0.01; // Minimum one Planck unit
@@ -257,107 +109,443 @@ int main(int argc, char** argv)
 		* emitter_radius_geometrized
 		* emitter_radius_geometrized;
 
-	// Field line count
-	const real_type n_geometrized =
-		emitter_area_geometrized
-		/ (log(2.0) * 4.0);
-
 	const real_type emitter_mass_geometrized =
 		emitter_radius_geometrized
 		/ 2.0;
 
-	real_type start_pos =
-		emitter_radius_geometrized
-		+ receiver_radius_geometrized;
+	
+	for (long long unsigned int i = 0; i < n; i++)
+		vertices.push_back(random_unit_vector() * emitter_radius_geometrized);
 
-	real_type end_pos = start_pos * 10;
-
-	//swap(end_pos, start_pos);
-
-	const size_t pos_res = 10; // Minimum 2 steps
-
-	const real_type pos_step_size =
-		(end_pos - start_pos)
-		/ (pos_res - 1);
-
-	const real_type epsilon =
-		receiver_radius_geometrized;
+	camera_w = emitter_radius_geometrized * 2;
 
 
-	for (size_t i = 0; i < pos_res; i++)
-	{
-		const real_type receiver_distance_geometrized =
-			start_pos + i * pos_step_size;
+	// to do: get vertices here
+	cout << setprecision(20) << endl;
 
-		const real_type receiver_distance_plus_geometrized =
-			receiver_distance_geometrized + epsilon;
-
-		// beta function
-		const real_type collision_count_plus_minus_collision_count =
-			get_intersecting_line_density(
-				static_cast<long long unsigned int>(n_geometrized),
-				emitter_radius_geometrized,
-				receiver_distance_geometrized,
-				receiver_distance_plus_geometrized,
-				receiver_radius_geometrized);
-
-		// alpha variable
-		const real_type gradient_integer =
-			collision_count_plus_minus_collision_count
-			/ epsilon;
-
-		// g variable
-		real_type gradient_strength =
-			-gradient_integer
-			/
-			(receiver_radius_geometrized
-				* receiver_radius_geometrized
-				);
-
-		//cout << gradient_strength << " " << n_geometrized / (2 * pow(receiver_distance_geometrized, 3.0)) << endl;
-		//cout << gradient_strength / (n_geometrized / (2 * pow(receiver_distance_geometrized, 3.0))) << endl;
+	glutInit(&argc, argv);
+	init_opengl(win_x, win_y);
+	glutReshapeFunc(reshape_func);
+	glutIdleFunc(idle_func);
+	glutDisplayFunc(display_func);
+	glutKeyboardFunc(keyboard_func);
+	glutMouseFunc(mouse_func);
+	glutMotionFunc(motion_func);
+	glutPassiveMotionFunc(passive_motion_func);
+	//glutIgnoreKeyRepeat(1);
+	glutMainLoop();
+	glutDestroyWindow(win_id);
 
 
-		const real_type a_Newton_geometrized =
-			sqrt(
-				n_geometrized * log(2.0)
-				/
-				(4.0 * pi *
-					pow(receiver_distance_geometrized, 4.0))
-			);
-
-		const real_type a_flat_geometrized =
-			gradient_strength * receiver_distance_geometrized * log(2)
-			/ (8.0 * emitter_mass_geometrized);
 
 
-		//const real_type g_approx = n_geometrized / (2 * pow(receiver_distance_geometrized, 3.0));
-		//const real_type a_approx_geometrized =
-		//	g_approx * receiver_distance_geometrized * log(2)
-		//	/ (8.0 * emitter_mass_geometrized);
 
 
-		const real_type dt_Schwarzschild = sqrt(1 - emitter_radius_geometrized / receiver_distance_geometrized);
 
-		const real_type a_Schwarzschild_geometrized =
-			emitter_radius_geometrized / (pi * pow(receiver_distance_geometrized, 2.0) * dt_Schwarzschild);
 
-		cout << "a_Schwarzschild_geometrized " << a_Schwarzschild_geometrized << endl;
-		cout << "a_Newton_geometrized " << a_Newton_geometrized << endl;
-		cout << "a_flat_geometrized " << a_flat_geometrized << endl;
-		cout << a_Schwarzschild_geometrized / a_flat_geometrized << endl;
-		cout << endl;
-		cout << a_Newton_geometrized / a_flat_geometrized << endl;
-		cout << endl << endl;
 
-		outfile << receiver_distance_geometrized <<
-			" " <<
-			(a_Schwarzschild_geometrized / a_flat_geometrized) <<
-			endl;
-	}
+
+
+
+
+
+
+
+
+
+	//real_type start_pos =
+	//	emitter_radius_geometrized
+	//	+ receiver_radius_geometrized;
+
+	//real_type end_pos = start_pos * 10;
+
+	////swap(end_pos, start_pos);
+
+	//const size_t pos_res = 10; // Minimum 2 steps
+
+	//const real_type pos_step_size =
+	//	(end_pos - start_pos)
+	//	/ (pos_res - 1);
+
+	//const real_type epsilon =
+	//	receiver_radius_geometrized;
+
+
+	//for (size_t i = 0; i < pos_res; i++)
+	//{
+	//	const real_type receiver_distance_geometrized =
+	//		start_pos + i * pos_step_size;
+
+	//	const real_type receiver_distance_plus_geometrized =
+	//		receiver_distance_geometrized + epsilon;
+
+	//	// beta function
+	//	const real_type collision_count_plus_minus_collision_count =
+	//		get_intersecting_line_density(
+	//			static_cast<long long unsigned int>(n_geometrized),
+	//			emitter_radius_geometrized,
+	//			receiver_distance_geometrized,
+	//			receiver_distance_plus_geometrized,
+	//			receiver_radius_geometrized);
+
+	//	// alpha variable
+	//	const real_type gradient_integer =
+	//		collision_count_plus_minus_collision_count
+	//		/ epsilon;
+
+	//	// g variable
+	//	real_type gradient_strength =
+	//		-gradient_integer
+	//		/
+	//		(receiver_radius_geometrized
+	//			* receiver_radius_geometrized
+	//			);
+
+	//	//cout << gradient_strength << " " << n_geometrized / (2 * pow(receiver_distance_geometrized, 3.0)) << endl;
+	//	//cout << gradient_strength / (n_geometrized / (2 * pow(receiver_distance_geometrized, 3.0))) << endl;
+
+
+	//	const real_type a_Newton_geometrized =
+	//		sqrt(
+	//			n_geometrized * log(2.0)
+	//			/
+	//			(4.0 * pi *
+	//				pow(receiver_distance_geometrized, 4.0))
+	//		);
+
+	//	const real_type a_flat_geometrized =
+	//		gradient_strength * receiver_distance_geometrized * log(2)
+	//		/ (8.0 * emitter_mass_geometrized);
+
+
+	//	//const real_type g_approx = n_geometrized / (2 * pow(receiver_distance_geometrized, 3.0));
+	//	//const real_type a_approx_geometrized =
+	//	//	g_approx * receiver_distance_geometrized * log(2)
+	//	//	/ (8.0 * emitter_mass_geometrized);
+
+
+	//	const real_type dt_Schwarzschild = sqrt(1 - emitter_radius_geometrized / receiver_distance_geometrized);
+
+	//	const real_type a_Schwarzschild_geometrized =
+	//		emitter_radius_geometrized / (pi * pow(receiver_distance_geometrized, 2.0) * dt_Schwarzschild);
+
+	//	cout << "a_Schwarzschild_geometrized " << a_Schwarzschild_geometrized << endl;
+	//	cout << "a_Newton_geometrized " << a_Newton_geometrized << endl;
+	//	cout << "a_flat_geometrized " << a_flat_geometrized << endl;
+	//	cout << a_Schwarzschild_geometrized / a_flat_geometrized << endl;
+	//	cout << endl;
+	//	cout << a_Newton_geometrized / a_flat_geometrized << endl;
+	//	cout << endl << endl;
+
+	//	outfile << receiver_distance_geometrized <<
+	//		" " <<
+	//		(a_Schwarzschild_geometrized / a_flat_geometrized) <<
+	//		endl;
+	//}
 
 }
 
 
 
 
+
+void idle_func(void)
+{
+	const double dt = 10000; // 10000 seconds == 2.77777 hours
+
+	// Pick an integrator:
+
+	////proceed_Euler(mercury_pos, mercury_vel, grav_constant, dt);
+	////proceed_RK4(mercury_pos, mercury_vel, grav_constant, dt);
+	//proceed_symplectic4(mercury_pos, mercury_vel, grav_constant, dt);
+
+	//positions.push_back(mercury_pos);
+
+	glutPostRedisplay();
+}
+
+void init_opengl(const int& width, const int& height)
+{
+	win_x = width;
+	win_y = height;
+
+	if (win_x < 1)
+		win_x = 1;
+
+	if (win_y < 1)
+		win_y = 1;
+
+	glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE | GLUT_DEPTH);
+	glutInitWindowPosition(0, 0);
+	glutInitWindowSize(win_x, win_y);
+	win_id = glutCreateWindow("orbit");
+
+	glEnable(GL_DEPTH_TEST);
+	glDepthFunc(GL_LEQUAL);
+	glDepthMask(GL_TRUE);
+	glShadeModel(GL_SMOOTH);
+	glEnable(GL_CULL_FACE);
+	glCullFace(GL_BACK);
+
+	glClearColor((float)background_colour.x, (float)background_colour.y, (float)background_colour.z, 1);
+	glClearDepth(1.0f);
+
+	main_camera.Set(0, 0, camera_w, camera_fov, win_x, win_y, camera_near, camera_far);
+}
+
+void reshape_func(int width, int height)
+{
+	win_x = width;
+	win_y = height;
+
+	if (win_x < 1)
+		win_x = 1;
+
+	if (win_y < 1)
+		win_y = 1;
+
+	glutSetWindow(win_id);
+	glutReshapeWindow(win_x, win_y);
+	glViewport(0, 0, win_x, win_y);
+
+	main_camera.Set(main_camera.u, main_camera.v, main_camera.w, main_camera.fov, win_x, win_y, camera_near, camera_far);
+}
+
+// Text drawing code originally from "GLUT Tutorial -- Bitmap Fonts and Orthogonal Projections" by A R Fernandes
+void render_string(int x, const int y, void* font, const string& text)
+{
+	for (size_t i = 0; i < text.length(); i++)
+	{
+		glRasterPos2i(x, y);
+		glutBitmapCharacter(font, text[i]);
+		x += glutBitmapWidth(font, text[i]) + 1;
+	}
+}
+// End text drawing code.
+
+void draw_objects(void)
+{
+	glDisable(GL_LIGHTING);
+
+	glPushMatrix();
+
+
+	glPointSize(2.0);
+	glLineWidth(1.0f);
+
+
+	glBegin(GL_POINTS);
+
+	glColor3f(1.0, 1.0, 1.0);
+
+	for (size_t i = 0; i < vertices.size(); i++)
+		glVertex3d(vertices[i].x, vertices[i].y, vertices[i].z);
+
+	glEnd();
+
+
+
+
+
+	glLineWidth(1.0f);
+
+
+	// If we do draw the axis at all, make sure not to draw its outline.
+	if (true == draw_axis)
+	{
+		glBegin(GL_LINES);
+
+		glColor3f(1, 0, 0);
+		glVertex3f(0, 0, 0);
+		glVertex3f(1, 0, 0);
+		glColor3f(0, 1, 0);
+		glVertex3f(0, 0, 0);
+		glVertex3f(0, 1, 0);
+		glColor3f(0, 0, 1);
+		glVertex3f(0, 0, 0);
+		glVertex3f(0, 0, 1);
+
+		glColor3f(0.5, 0.5, 0.5);
+		glVertex3f(0, 0, 0);
+		glVertex3f(-1, 0, 0);
+		glVertex3f(0, 0, 0);
+		glVertex3f(0, -1, 0);
+		glVertex3f(0, 0, 0);
+		glVertex3f(0, 0, -1);
+
+		glEnd();
+	}
+
+	glPopMatrix();
+}
+
+
+
+
+void display_func(void)
+{
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+	// Draw the model's components using OpenGL/GLUT primitives.
+	draw_objects();
+
+	if (true == draw_control_list)
+	{
+		// Text drawing code originally from "GLUT Tutorial -- Bitmap Fonts and Orthogonal Projections" by A R Fernandes
+		// http://www.lighthouse3d.com/opengl/glut/index.php?bmpfontortho
+		glMatrixMode(GL_PROJECTION);
+		glPushMatrix();
+		glLoadIdentity();
+		gluOrtho2D(0, win_x, 0, win_y);
+		glScaled(1, -1, 1); // Neat. :)
+		glTranslated(0, -win_y, 0); // Neat. :)
+		glMatrixMode(GL_MODELVIEW);
+		glPushMatrix();
+		glLoadIdentity();
+
+		glColor3d(control_list_colour.x, control_list_colour.y, control_list_colour.z);
+
+		size_t break_size = 22;
+		size_t start = 20;
+		ostringstream oss;
+
+		render_string(10, static_cast<int>(start), GLUT_BITMAP_HELVETICA_18, string("Mouse controls:"));
+		render_string(10, static_cast<int>(start + 1 * break_size), GLUT_BITMAP_HELVETICA_18, string("  LMB + drag: Rotate camera"));
+		render_string(10, static_cast<int>(start + 2 * break_size), GLUT_BITMAP_HELVETICA_18, string("  RMB + drag: Zoom camera"));
+
+		render_string(10, static_cast<int>(start + 4 * break_size), GLUT_BITMAP_HELVETICA_18, string("Keyboard controls:"));
+		render_string(10, static_cast<int>(start + 5 * break_size), GLUT_BITMAP_HELVETICA_18, string("  w: Draw axis"));
+		render_string(10, static_cast<int>(start + 6 * break_size), GLUT_BITMAP_HELVETICA_18, string("  e: Draw text"));
+		render_string(10, static_cast<int>(start + 7 * break_size), GLUT_BITMAP_HELVETICA_18, string("  u: Rotate camera +u"));
+		render_string(10, static_cast<int>(start + 8 * break_size), GLUT_BITMAP_HELVETICA_18, string("  i: Rotate camera -u"));
+		render_string(10, static_cast<int>(start + 9 * break_size), GLUT_BITMAP_HELVETICA_18, string("  o: Rotate camera +v"));
+		render_string(10, static_cast<int>(start + 10 * break_size), GLUT_BITMAP_HELVETICA_18, string("  p: Rotate camera -v"));
+
+
+
+		custom_math::vector_3 eye = main_camera.eye;
+		custom_math::vector_3 eye_norm = eye;
+		eye_norm.normalize();
+
+		oss.clear();
+		oss.str("");
+		oss << "Camera position: " << eye.x << ' ' << eye.y << ' ' << eye.z;
+		render_string(10, static_cast<int>(win_y - 2 * break_size), GLUT_BITMAP_HELVETICA_18, oss.str());
+
+		oss.clear();
+		oss.str("");
+		oss << "Camera position (normalized): " << eye_norm.x << ' ' << eye_norm.y << ' ' << eye_norm.z;
+		render_string(10, static_cast<int>(win_y - break_size), GLUT_BITMAP_HELVETICA_18, oss.str());
+
+		glPopMatrix();
+		glMatrixMode(GL_PROJECTION);
+		glPopMatrix();
+		// End text drawing code.
+	}
+
+	glFlush();
+	glutSwapBuffers();
+}
+
+void keyboard_func(unsigned char key, int x, int y)
+{
+	switch (tolower(key))
+	{
+	case 'w':
+	{
+		draw_axis = !draw_axis;
+		break;
+	}
+	case 'e':
+	{
+		draw_control_list = !draw_control_list;
+		break;
+	}
+	case 'u':
+	{
+		main_camera.u -= u_spacer;
+		main_camera.Set();
+		break;
+	}
+	case 'i':
+	{
+		main_camera.u += u_spacer;
+		main_camera.Set();
+		break;
+	}
+	case 'o':
+	{
+		main_camera.v -= v_spacer;
+		main_camera.Set();
+		break;
+	}
+	case 'p':
+	{
+		main_camera.v += v_spacer;
+		main_camera.Set();
+		break;
+	}
+
+	default:
+		break;
+	}
+}
+
+void mouse_func(int button, int state, int x, int y)
+{
+	if (GLUT_LEFT_BUTTON == button)
+	{
+		if (GLUT_DOWN == state)
+			lmb_down = true;
+		else
+			lmb_down = false;
+	}
+	else if (GLUT_MIDDLE_BUTTON == button)
+	{
+		if (GLUT_DOWN == state)
+			mmb_down = true;
+		else
+			mmb_down = false;
+	}
+	else if (GLUT_RIGHT_BUTTON == button)
+	{
+		if (GLUT_DOWN == state)
+			rmb_down = true;
+		else
+			rmb_down = false;
+	}
+}
+
+void motion_func(int x, int y)
+{
+	int prev_mouse_x = mouse_x;
+	int prev_mouse_y = mouse_y;
+
+	mouse_x = x;
+	mouse_y = y;
+
+	int mouse_delta_x = mouse_x - prev_mouse_x;
+	int mouse_delta_y = prev_mouse_y - mouse_y;
+
+	if (true == lmb_down && (0 != mouse_delta_x || 0 != mouse_delta_y))
+	{
+		main_camera.u -= static_cast<float>(mouse_delta_y) * u_spacer;
+		main_camera.v += static_cast<float>(mouse_delta_x) * v_spacer;
+	}
+	else if (true == rmb_down && (0 != mouse_delta_y))
+	{
+		main_camera.w -= static_cast<float>(mouse_delta_y) * w_spacer;
+
+		if (main_camera.w < 1.1f)
+			main_camera.w = 1.1f;
+
+	}
+
+	main_camera.Set(); // Calculate new camera vectors.
+}
+
+void passive_motion_func(int x, int y)
+{
+	mouse_x = x;
+	mouse_y = y;
+}
