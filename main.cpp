@@ -1,9 +1,36 @@
 ﻿#include "main.h"
 
 
-vector<vector_3> vertices;
+class messenger_particle
+{
+public:
+	vector_3 position;
+	vector_3 velocity;
+};
 
-// E = N(N - 1) / 2
+class bi_directional_edge
+{
+public:
+	pair<vector_3, vector_3> locations;
+	real_type frequency;
+	real_type last_emitted;
+};
+
+class schwarzschild_black_hole
+{
+public:
+	vector<vector_3> vertices;
+	vector<bi_directional_edge> edges;
+};
+
+
+
+
+schwarzschild_black_hole bh;
+vector<messenger_particle> photons;
+
+
+// E = (N^2 - N) / 2
 
 
 
@@ -96,7 +123,7 @@ real_type get_intersecting_line_density(
 int main(int argc, char** argv)
 {
 	// Field line count
-	const long long unsigned int n = 100;
+	const long long unsigned int n = 10;
 
 	const real_type emitter_radius_geometrized =
 		sqrt(n * log(2.0) / pi);
@@ -115,17 +142,17 @@ int main(int argc, char** argv)
 
 	
 	for (long long unsigned int i = 0; i < n; i++)
-		vertices.push_back(random_unit_vector() * emitter_radius_geometrized);
+		bh.vertices.push_back(random_unit_vector() * emitter_radius_geometrized);
 
-	camera_w = emitter_radius_geometrized * 1.1;
+	camera_w = emitter_radius_geometrized * 5.0;
 
 	long long unsigned int num_repulsion_rounds = 10;
 
 	for (size_t x = 0; x < num_repulsion_rounds; x++)
 	{
-		cout << x << " " << num_repulsion_rounds << endl;
+		//cout << x << " " << num_repulsion_rounds << endl;
 
-		vector<vector_3> backup_points = vertices;
+		vector<vector_3> backup_points = bh.vertices;
 
 		for (long long unsigned int i = 0; i < n; i++)
 		{
@@ -145,11 +172,48 @@ int main(int argc, char** argv)
 				a += accel;
 			}
 
-			vertices[i] += a;
-			vertices[i].normalize();
-			vertices[i] *= emitter_radius_geometrized;
+			bh.vertices[i] += a;
+			bh.vertices[i].normalize();
+			bh.vertices[i] *= emitter_radius_geometrized;
 		}
 	}
+
+
+
+	std::chrono::high_resolution_clock::time_point t = std::chrono::high_resolution_clock::now();
+	std::chrono::duration<float, std::milli> elapsed = t - app_start_time;
+
+	for (long long unsigned int i = 0; i < n; i++)
+	{
+		for (long long unsigned int j = i + 1; j < n; j++)
+		{
+			bi_directional_edge e;
+			
+			e.locations = pair<vector_3, vector_3>(bh.vertices[i], bh.vertices[j]);
+			
+			const real_type wavelength = (e.locations.first - e.locations.second).length();
+
+			e.frequency = 1.0 / wavelength;
+			e.last_emitted = elapsed.count();// *1000.0;
+
+			vector_3 mid_way = (e.locations.first + e.locations.second) * 0.5;
+			vector_3 dir = e.locations.first - e.locations.second;
+			dir.normalize();
+
+			messenger_particle p;
+			
+			p.position = mid_way;
+			p.velocity = dir;
+			photons.push_back(p);
+
+			p.position = mid_way;
+			p.velocity = -dir;
+			photons.push_back(p);
+
+			bh.edges.push_back(e);
+		}
+	}
+
 
 
 
@@ -283,15 +347,38 @@ int main(int argc, char** argv)
 
 void idle_func(void)
 {
-	const double dt = 10000; // 10000 seconds == 2.77777 hours
+	const double dt = 0.001;
 
-	// Pick an integrator:
+	std::chrono::high_resolution_clock::time_point t = std::chrono::high_resolution_clock::now();
+	std::chrono::duration<float, std::milli> elapsed = t - app_start_time;
 
-	////proceed_Euler(mercury_pos, mercury_vel, grav_constant, dt);
-	////proceed_RK4(mercury_pos, mercury_vel, grav_constant, dt);
-	//proceed_symplectic4(mercury_pos, mercury_vel, grav_constant, dt);
+	real_type tf = elapsed.count();
 
-	//positions.push_back(mercury_pos);
+	for (size_t i = 0; i < bh.edges.size(); i++)
+	{
+		if (tf >= bh.edges[i].last_emitted + bh.edges[i].frequency*1000.0)
+		{
+			vector_3 mid_way = (bh.edges[i].locations.first + bh.edges[i].locations.second) * 0.5;
+			vector_3 dir = bh.edges[i].locations.first - bh.edges[i].locations.second;
+			dir.normalize();
+
+			messenger_particle p;
+
+			p.position = mid_way;
+			p.velocity = dir;
+			photons.push_back(p);
+
+			p.position = mid_way;
+			p.velocity = -dir;
+			photons.push_back(p);
+
+			bh.edges[i].last_emitted = tf;
+		}
+	}
+
+
+	for (size_t i = 0; i < photons.size(); i++)
+		photons[i].position += photons[i].velocity * dt;
 
 	glutPostRedisplay();
 }
@@ -370,13 +457,21 @@ void draw_objects(void)
 
 	glColor3f(1.0, 1.0, 1.0);
 
-	for (size_t i = 0; i < vertices.size(); i++)
-		glVertex3d(vertices[i].x, vertices[i].y, vertices[i].z);
+	for (size_t i = 0; i < bh.vertices.size(); i++)
+		glVertex3d(bh.vertices[i].x, bh.vertices[i].y, bh.vertices[i].z);
 
 	glEnd();
 
 
 
+	glBegin(GL_POINTS);
+
+	glColor3f(1.0, 0.5, 0.0);
+
+	for (size_t i = 0; i < photons.size(); i++)
+		glVertex3d(photons[i].position.x, photons[i].position.y, photons[i].position.z);
+
+	glEnd();
 
 
 	glLineWidth(1.0f);

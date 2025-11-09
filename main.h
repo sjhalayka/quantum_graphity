@@ -53,6 +53,7 @@ using std::thread;
 std::mt19937 generator(0);
 std::uniform_real_distribution<real_type> dis(0.0, 1.0);
 
+#include <chrono>
 #include <optional>
 #include <utility>
 using namespace std;
@@ -71,6 +72,7 @@ const real_type k = 1.380649e-23;
 
 const real_type planck_length = sqrt(hbar * G / c3);
 
+static std::chrono::high_resolution_clock::time_point app_start_time = std::chrono::high_resolution_clock::now();
 
 void idle_func(void);
 void init_opengl(const int& width, const int& height);
@@ -103,8 +105,8 @@ real_type camera_y_transform = 0;
 real_type u_spacer = 0.01f;
 real_type v_spacer = 0.5f * u_spacer;
 real_type w_spacer = 0.1f;
-real_type camera_near = 0.000001f;
-real_type camera_far = 1000000.0f;
+real_type camera_near = 0.001;
+real_type camera_far = 100000.0f;
 
 bool lmb_down = false;
 bool mmb_down = false;
