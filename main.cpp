@@ -194,7 +194,7 @@ int main(int argc, char** argv)
 			const real_type wavelength = (e.locations.first - e.locations.second).length();
 
 			e.frequency = 1.0 / wavelength;
-			e.last_emitted = elapsed.count();// *1000.0;
+			e.last_emitted = elapsed.count();
 
 			vector_3 mid_way = (e.locations.first + e.locations.second) * 0.5;
 			vector_3 dir = e.locations.first - e.locations.second;
@@ -375,7 +375,6 @@ void idle_func(void)
 			bh.edges[i].last_emitted = tf;
 		}
 	}
-
 
 	for (size_t i = 0; i < photons.size(); i++)
 		photons[i].position += photons[i].velocity * dt;
