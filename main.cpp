@@ -6,13 +6,14 @@ class messenger_particle
 public:
 	vector_3 position;
 	vector_3 velocity;
+	real_type wavelength;
 };
 
 class bi_directional_edge
 {
 public:
 	pair<vector_3, vector_3> locations;
-	real_type frequency;
+	real_type wavelength;
 	real_type last_emitted;
 };
 
@@ -60,7 +61,6 @@ bool intersect_AABB(const vector_3 min_location, const vector_3 max_location, co
 
 bool intersect(
 	const vector_3 location,
-	const vector_3 normal,
 	const real_type receiver_distance,
 	const real_type receiver_radius)
 {
@@ -81,41 +81,14 @@ real_type get_intersecting_line_density(
 	real_type count = 0;
 	real_type count_plus = 0;
 
-	//generator.seed(static_cast<unsigned>(0));
+	for (size_t i = 0; i < photons.size(); i++)
+	{
+		if (intersect(photons[i].position, receiver_distance, receiver_radius))
+			count++;
 
-	//for (long long unsigned int i = 0; i < n; i++)
-	//{
-	//	if (i % 100000000 == 0)
-	//		cout << float(i) / float(n) << endl;
-
-	//	// Random hemisphere outward
-	//	vector_3 location = random_unit_vector();
-
-	//	location.x *= emitter_radius;
-	//	location.y *= emitter_radius;
-	//	location.z *= emitter_radius;
-
-	//	vector_3 surface_normal = location;
-	//	surface_normal.normalize();
-
-	//	vector_3 normal = 
-	//		random_cosine_weighted_hemisphere(
-	//			surface_normal);
-
-	//	bool i_hit = intersect(
-	//		location, normal, 
-	//		receiver_distance, receiver_radius);
-
-	//	//if (i_hit)
-	//	//	count += *i_hit / (2.0 * receiver_radius);
-	//
-	//	i_hit = intersect(
-	//		location, normal,
-	//		receiver_distance_plus, receiver_radius);
-
-	//	//if (i_hit)
-	//	//	count_plus += *i_hit / (2.0 * receiver_radius);
-	//}
+		if (intersect(photons[i].position, receiver_distance_plus, receiver_radius))
+			count_plus++;
+	}
 
 	return count_plus - count;
 }
@@ -123,7 +96,7 @@ real_type get_intersecting_line_density(
 int main(int argc, char** argv)
 {
 	// Field line count
-	const long long unsigned int n = 10;
+	const long long unsigned int n = 100;
 
 	const real_type emitter_radius_geometrized =
 		sqrt(n * log(2.0) / pi);
@@ -140,7 +113,8 @@ int main(int argc, char** argv)
 		emitter_radius_geometrized
 		/ 2.0;
 
-	
+
+
 	for (long long unsigned int i = 0; i < n; i++)
 		bh.vertices.push_back(random_unit_vector() * emitter_radius_geometrized);
 
@@ -181,7 +155,7 @@ int main(int argc, char** argv)
 
 
 	std::chrono::high_resolution_clock::time_point t = std::chrono::high_resolution_clock::now();
-	std::chrono::duration<float, std::milli> elapsed = t - app_start_time;
+	std::chrono::duration<real_type> elapsed = t - app_start_time;
 
 	for (long long unsigned int i = 0; i < n; i++)
 	{
@@ -193,26 +167,48 @@ int main(int argc, char** argv)
 			
 			const real_type wavelength = (e.locations.first - e.locations.second).length();
 
-			e.frequency = 1.0 / wavelength;
-			e.last_emitted = elapsed.count();
+			e.wavelength = wavelength;
+			e.last_emitted = 0;// elapsed.count();
 
-			vector_3 mid_way = (e.locations.first + e.locations.second) * 0.5;
-			vector_3 dir = e.locations.first - e.locations.second;
-			dir.normalize();
+			//vector_3 mid_way = (e.locations.first + e.locations.second) * 0.5;
+			//vector_3 dir = e.locations.first - e.locations.second;
+			//dir.normalize();
+			//dir *= 0.01;
 
-			messenger_particle p;
-			
-			p.position = mid_way;
-			p.velocity = dir;
-			photons.push_back(p);
+			//messenger_particle p;
+			//p.frequency = e.frequency;
 
-			p.position = mid_way;
-			p.velocity = -dir;
-			photons.push_back(p);
+			//p.position = mid_way;
+			//p.velocity = dir;
+			//photons.push_back(p);
+
+			//p.position = mid_way;
+			//p.velocity = -dir;
+			//photons.push_back(p);
 
 			bh.edges.push_back(e);
 		}
 	}
+
+	const real_type start_pos =
+		emitter_radius_geometrized
+		+ receiver_radius_geometrized;
+
+	const real_type end_pos = start_pos * 10;
+
+	//swap(end_pos, start_pos);
+
+	const size_t pos_res = 10; // Minimum 2 steps
+
+	const real_type pos_step_size =
+		(end_pos - start_pos)
+		/ (pos_res - 1);
+
+	const real_type epsilon =
+		receiver_radius_geometrized;
+
+	// to do: pass time until lowest frequency in black hole is culled
+
 
 
 
@@ -244,27 +240,6 @@ int main(int argc, char** argv)
 
 
 
-
-
-
-
-
-	//real_type start_pos =
-	//	emitter_radius_geometrized
-	//	+ receiver_radius_geometrized;
-
-	//real_type end_pos = start_pos * 10;
-
-	////swap(end_pos, start_pos);
-
-	//const size_t pos_res = 10; // Minimum 2 steps
-
-	//const real_type pos_step_size =
-	//	(end_pos - start_pos)
-	//	/ (pos_res - 1);
-
-	//const real_type epsilon =
-	//	receiver_radius_geometrized;
 
 
 	//for (size_t i = 0; i < pos_res; i++)
@@ -349,20 +324,20 @@ void idle_func(void)
 {
 	const double dt = 0.001;
 
-	std::chrono::high_resolution_clock::time_point t = std::chrono::high_resolution_clock::now();
-	std::chrono::duration<float, std::milli> elapsed = t - app_start_time;
-
-	real_type tf = elapsed.count();
-
 	for (size_t i = 0; i < bh.edges.size(); i++)
 	{
-		if (tf >= bh.edges[i].last_emitted + bh.edges[i].frequency*1000.0)
+		std::chrono::high_resolution_clock::time_point t = std::chrono::high_resolution_clock::now();
+		std::chrono::duration<real_type> elapsed = t - app_start_time;
+		const real_type tf = elapsed.count();
+
+		if (bh.edges[i].last_emitted == 0 || tf >= bh.edges[i].last_emitted + bh.edges[i].wavelength)
 		{
 			vector_3 mid_way = (bh.edges[i].locations.first + bh.edges[i].locations.second) * 0.5;
 			vector_3 dir = bh.edges[i].locations.first - bh.edges[i].locations.second;
 			dir.normalize();
 
 			messenger_particle p;
+			p.wavelength = bh.edges[i].wavelength;
 
 			p.position = mid_way;
 			p.velocity = dir;
