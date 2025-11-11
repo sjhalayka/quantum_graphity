@@ -115,6 +115,9 @@ int main(int argc, char** argv)
 
 
 
+
+	real_type max_wavelength = 0;
+
 	for (long long unsigned int i = 0; i < n; i++)
 		bh.vertices.push_back(random_unit_vector() * emitter_radius_geometrized);
 
@@ -152,11 +155,6 @@ int main(int argc, char** argv)
 		}
 	}
 
-
-
-	std::chrono::high_resolution_clock::time_point t = std::chrono::high_resolution_clock::now();
-	std::chrono::duration<real_type> elapsed = t - app_start_time;
-
 	for (long long unsigned int i = 0; i < n; i++)
 	{
 		for (long long unsigned int j = i + 1; j < n; j++)
@@ -168,27 +166,15 @@ int main(int argc, char** argv)
 			const real_type wavelength = (e.locations.first - e.locations.second).length();
 
 			e.wavelength = wavelength;
-			e.last_emitted = 0;// elapsed.count();
-
-			//vector_3 mid_way = (e.locations.first + e.locations.second) * 0.5;
-			//vector_3 dir = e.locations.first - e.locations.second;
-			//dir.normalize();
-			//dir *= 0.01;
-
-			//messenger_particle p;
-			//p.frequency = e.frequency;
-
-			//p.position = mid_way;
-			//p.velocity = dir;
-			//photons.push_back(p);
-
-			//p.position = mid_way;
-			//p.velocity = -dir;
-			//photons.push_back(p);
+			e.last_emitted = 0;
 
 			bh.edges.push_back(e);
+
+			if (wavelength > max_wavelength)
+				max_wavelength = wavelength;
 		}
 	}
+
 
 	const real_type start_pos =
 		emitter_radius_geometrized
