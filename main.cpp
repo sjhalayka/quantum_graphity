@@ -86,7 +86,7 @@ real_type get_intersecting_line_density(
 		{
 			//count += 1.0;
 
-			count += 1.0/photons[i].wavelength;
+			count += 1.0 / photons[i].wavelength;
 		}
 
 		if (intersect(photons[i].position, receiver_distance_plus, receiver_radius))
@@ -97,7 +97,7 @@ real_type get_intersecting_line_density(
 		}
 	}
 
-	return count_plus / pow(receiver_radius*2, 3.0) - count / pow(receiver_radius * 2, 3.0);
+	return count_plus / pow(receiver_radius * 2, 3.0) - count / pow(receiver_radius * 2, 3.0);
 }
 
 int main(int argc, char** argv)
@@ -167,9 +167,9 @@ int main(int argc, char** argv)
 		for (long long unsigned int j = i + 1; j < n; j++)
 		{
 			bi_directional_edge e;
-			
+
 			e.locations = pair<vector_3, vector_3>(bh.vertices[i], bh.vertices[j]);
-			
+
 			const real_type wavelength = (e.locations.first - e.locations.second).length();
 
 			e.wavelength = wavelength;
@@ -234,7 +234,7 @@ int main(int argc, char** argv)
 
 		bool is_max_wavelength_photon = false;
 
-		for (vector<messenger_particle>::iterator i = photons.begin(); i != photons.end(); i++)		
+		for (vector<messenger_particle>::iterator i = photons.begin(); i != photons.end(); i++)
 		{
 			i->position += i->velocity * dt;
 
@@ -247,8 +247,8 @@ int main(int argc, char** argv)
 			}
 			else
 			{
-				if(i == photons.begin())
-				cout << i->position.length() / (end_pos * 2) << endl;
+				if (i == photons.begin())
+					cout << i->position.length() / (end_pos * 2) << endl;
 			}
 
 			if (is_max_wavelength_photon == true)
@@ -285,13 +285,13 @@ int main(int argc, char** argv)
 		// g variable
 		real_type gradient_strength =
 			-gradient_integer;
-			///
-			//(receiver_radius_geometrized
-			//	* receiver_radius_geometrized
-			//	);
+		///
+		//(receiver_radius_geometrized
+		//	* receiver_radius_geometrized
+		//	);
 
-		//cout << gradient_strength << " " << n_geometrized / (2 * pow(receiver_distance_geometrized, 3.0)) << endl;
-		//cout << gradient_strength / (n_geometrized / (2 * pow(receiver_distance_geometrized, 3.0))) << endl;
+	//cout << gradient_strength << " " << n_geometrized / (2 * pow(receiver_distance_geometrized, 3.0)) << endl;
+	//cout << gradient_strength / (n_geometrized / (2 * pow(receiver_distance_geometrized, 3.0))) << endl;
 
 
 		const real_type a_Newton_geometrized =

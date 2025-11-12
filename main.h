@@ -50,7 +50,7 @@ using std::mutex;
 using std::thread;
 
 #include <random>
-std::mt19937 generator(0);
+std::mt19937 generator(unsigned(time(0)));
 std::uniform_real_distribution<real_type> dis(0.0, 1.0);
 
 #include <chrono>
