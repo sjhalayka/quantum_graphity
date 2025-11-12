@@ -72,7 +72,6 @@ bool intersect(
 
 
 real_type get_intersecting_line_density(
-	const long long unsigned int n,
 	const real_type emitter_radius,
 	const real_type receiver_distance,
 	const real_type receiver_distance_plus,
@@ -84,13 +83,21 @@ real_type get_intersecting_line_density(
 	for (size_t i = 0; i < photons.size(); i++)
 	{
 		if (intersect(photons[i].position, receiver_distance, receiver_radius))
-			count++;
+		{
+			//count += 1.0;
+
+			count += 1.0/photons[i].wavelength;
+		}
 
 		if (intersect(photons[i].position, receiver_distance_plus, receiver_radius))
-			count_plus++;
+		{
+			//count_plus += 1.0;
+
+			count_plus += 1.0 / photons[i].wavelength;
+		}
 	}
 
-	return count_plus - count;
+	return count_plus / pow(receiver_radius*2, 3.0) - count / pow(receiver_radius * 2, 3.0);
 }
 
 int main(int argc, char** argv)
@@ -102,7 +109,7 @@ int main(int argc, char** argv)
 		sqrt(n * log(2.0) / pi);
 
 	const real_type receiver_radius_geometrized =
-		emitter_radius_geometrized * 0.01; // Minimum one Planck unit
+		emitter_radius_geometrized * 1.0; // Minimum one Planck unit
 
 	const real_type emitter_area_geometrized =
 		4.0 * pi
@@ -193,10 +200,137 @@ int main(int argc, char** argv)
 	const real_type epsilon =
 		receiver_radius_geometrized;
 
-	// to do: pass time until lowest frequency in black hole is culled
+
+	while (true)
+	{
+		const double dt = 0.001;
+
+		for (size_t i = 0; i < bh.edges.size(); i++)
+		{
+			std::chrono::high_resolution_clock::time_point t = std::chrono::high_resolution_clock::now();
+			std::chrono::duration<real_type> elapsed = t - app_start_time;
+			const real_type tf = elapsed.count();
+
+			if (bh.edges[i].last_emitted == 0 || tf >= bh.edges[i].last_emitted + bh.edges[i].wavelength)
+			{
+				vector_3 mid_way = (bh.edges[i].locations.first + bh.edges[i].locations.second) * 0.5;
+				vector_3 dir = bh.edges[i].locations.first - bh.edges[i].locations.second;
+				dir.normalize();
+
+				messenger_particle p;
+				p.wavelength = bh.edges[i].wavelength;
+
+				p.position = mid_way;
+				p.velocity = dir;
+				photons.push_back(p);
+
+				p.position = mid_way;
+				p.velocity = -dir;
+				photons.push_back(p);
+
+				bh.edges[i].last_emitted = tf;
+			}
+		}
+
+		bool is_max_wavelength_photon = false;
+
+		for (vector<messenger_particle>::iterator i = photons.begin(); i != photons.end(); i++)		
+		{
+			i->position += i->velocity * dt;
+
+			if (i->position.length() >= end_pos * 2)
+			{
+				if (i->wavelength == max_wavelength)
+					is_max_wavelength_photon = true;
+
+				i = photons.erase(i);
+			}
+			else
+			{
+				if(i == photons.begin())
+				cout << i->position.length() / (end_pos * 2) << endl;
+			}
+
+			if (is_max_wavelength_photon == true)
+				break;
+		}
+
+		if (is_max_wavelength_photon == true)
+			break;
+	}
 
 
 
+	for (size_t i = 0; i < pos_res; i++)
+	{
+		const real_type receiver_distance_geometrized =
+			start_pos + i * pos_step_size;
+
+		const real_type receiver_distance_plus_geometrized =
+			receiver_distance_geometrized + epsilon;
+
+		// beta function
+		const real_type collision_count_plus_minus_collision_count =
+			get_intersecting_line_density(
+				emitter_radius_geometrized,
+				receiver_distance_geometrized,
+				receiver_distance_plus_geometrized,
+				receiver_radius_geometrized);
+
+		// alpha variable
+		const real_type gradient_integer =
+			collision_count_plus_minus_collision_count
+			/ epsilon;
+
+		// g variable
+		real_type gradient_strength =
+			-gradient_integer;
+			///
+			//(receiver_radius_geometrized
+			//	* receiver_radius_geometrized
+			//	);
+
+		//cout << gradient_strength << " " << n_geometrized / (2 * pow(receiver_distance_geometrized, 3.0)) << endl;
+		//cout << gradient_strength / (n_geometrized / (2 * pow(receiver_distance_geometrized, 3.0))) << endl;
+
+
+		const real_type a_Newton_geometrized =
+			sqrt(
+				n * log(2.0)
+				/
+				(4.0 * pi *
+					pow(receiver_distance_geometrized, 4.0))
+			);
+
+		const real_type a_flat_geometrized =
+			gradient_strength * receiver_distance_geometrized * log(2)
+			/ (8.0 * emitter_mass_geometrized);
+
+
+		//const real_type g_approx = n_geometrized / (2 * pow(receiver_distance_geometrized, 3.0));
+		//const real_type a_approx_geometrized =
+		//	g_approx * receiver_distance_geometrized * log(2)
+		//	/ (8.0 * emitter_mass_geometrized);
+
+
+		const real_type dt_Schwarzschild = sqrt(1 - emitter_radius_geometrized / receiver_distance_geometrized);
+
+		const real_type a_Schwarzschild_geometrized =
+			emitter_radius_geometrized / (pi * pow(receiver_distance_geometrized, 2.0) * dt_Schwarzschild);
+
+		cout << "a_Schwarzschild_geometrized " << a_Schwarzschild_geometrized << endl;
+		cout << "a_Newton_geometrized " << a_Newton_geometrized << endl;
+		cout << "a_flat_geometrized " << a_flat_geometrized << endl;
+		cout << a_Schwarzschild_geometrized / a_flat_geometrized << endl;
+		cout << endl;
+		cout << a_Newton_geometrized / a_flat_geometrized << endl;
+		cout << endl << endl;
+	}
+
+
+
+
+	return 0;
 
 
 	cout << setprecision(20) << endl;
@@ -308,37 +442,37 @@ int main(int argc, char** argv)
 
 void idle_func(void)
 {
-	const double dt = 0.001;
+	//const double dt = 0.001;
 
-	for (size_t i = 0; i < bh.edges.size(); i++)
-	{
-		std::chrono::high_resolution_clock::time_point t = std::chrono::high_resolution_clock::now();
-		std::chrono::duration<real_type> elapsed = t - app_start_time;
-		const real_type tf = elapsed.count();
+	//for (size_t i = 0; i < bh.edges.size(); i++)
+	//{
+	//	std::chrono::high_resolution_clock::time_point t = std::chrono::high_resolution_clock::now();
+	//	std::chrono::duration<real_type> elapsed = t - app_start_time;
+	//	const real_type tf = elapsed.count();
 
-		if (bh.edges[i].last_emitted == 0 || tf >= bh.edges[i].last_emitted + bh.edges[i].wavelength)
-		{
-			vector_3 mid_way = (bh.edges[i].locations.first + bh.edges[i].locations.second) * 0.5;
-			vector_3 dir = bh.edges[i].locations.first - bh.edges[i].locations.second;
-			dir.normalize();
+	//	if (bh.edges[i].last_emitted == 0 || tf >= bh.edges[i].last_emitted + bh.edges[i].wavelength)
+	//	{
+	//		vector_3 mid_way = (bh.edges[i].locations.first + bh.edges[i].locations.second) * 0.5;
+	//		vector_3 dir = bh.edges[i].locations.first - bh.edges[i].locations.second;
+	//		dir.normalize();
 
-			messenger_particle p;
-			p.wavelength = bh.edges[i].wavelength;
+	//		messenger_particle p;
+	//		p.wavelength = bh.edges[i].wavelength;
 
-			p.position = mid_way;
-			p.velocity = dir;
-			photons.push_back(p);
+	//		p.position = mid_way;
+	//		p.velocity = dir;
+	//		photons.push_back(p);
 
-			p.position = mid_way;
-			p.velocity = -dir;
-			photons.push_back(p);
+	//		p.position = mid_way;
+	//		p.velocity = -dir;
+	//		photons.push_back(p);
 
-			bh.edges[i].last_emitted = tf;
-		}
-	}
+	//		bh.edges[i].last_emitted = tf;
+	//	}
+	//}
 
-	for (size_t i = 0; i < photons.size(); i++)
-		photons[i].position += photons[i].velocity * dt;
+	//for (size_t i = 0; i < photons.size(); i++)
+	//	photons[i].position += photons[i].velocity * dt;
 
 	glutPostRedisplay();
 }
