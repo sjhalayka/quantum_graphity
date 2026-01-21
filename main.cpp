@@ -1,44 +1,124 @@
 ﻿#include "main.h"
+#include <thread>
+#include <vector>
+#include <atomic>
+#include <chrono>
+#include <iomanip>
+#include <random>
 
-
-class messenger_particle
-{
-public:
-	vector_3 position;
-	vector_3 velocity;
-	real_type wavelength;
-};
-
-class bi_directional_edge
-{
-public:
-	pair<vector_3, vector_3> locations;
-	real_type wavelength;
-	real_type last_emitted;
-};
 
 class schwarzschild_black_hole
 {
 public:
 	vector<vector_3> vertices;
-	vector<bi_directional_edge> edges;
+	//	vector<bi_directional_edge> edges;
 };
 
-
-
-
 schwarzschild_black_hole bh;
-vector<messenger_particle> photons;
-
-
-// E = (N^2 - N) / 2
 
 
 
-vector_3 random_unit_vector(void)
+
+
+// Atomic counter for progress tracking
+std::atomic<long long unsigned int> global_progress(0);
+
+real_type intersect_AABB(const vector_3 min_location, const vector_3 max_location, const vector_3 ray_origin, const vector_3 ray_dir, real_type& tmin, real_type& tmax)
 {
-	const real_type z = dis(generator) * 2.0 - 1.0;
-	const real_type a = dis(generator) * 2.0 * pi;
+	tmin = (min_location.x - ray_origin.x) / ray_dir.x;
+	tmax = (max_location.x - ray_origin.x) / ray_dir.x;
+
+	if (tmin > tmax)
+		swap(tmin, tmax);
+
+	real_type tymin = (min_location.y - ray_origin.y) / ray_dir.y;
+	real_type tymax = (max_location.y - ray_origin.y) / ray_dir.y;
+
+	if (tymin > tymax)
+		swap(tymin, tymax);
+
+	if ((tmin > tymax) || (tymin > tmax))
+		return 0;
+
+	if (tymin > tmin)
+		tmin = tymin;
+
+	if (tymax < tmax)
+		tmax = tymax;
+
+	real_type tzmin = (min_location.z - ray_origin.z) / ray_dir.z;
+	real_type tzmax = (max_location.z - ray_origin.z) / ray_dir.z;
+
+	if (tzmin > tzmax)
+		swap(tzmin, tzmax);
+
+	if ((tmin > tzmax) || (tzmin > tmax))
+		return 0;
+
+	if (tzmin > tmin)
+		tmin = tzmin;
+
+	if (tzmax < tmax)
+		tmax = tzmax;
+
+	if (tmin < 0 || tmax < 0)
+		return 0;
+
+	vector_3 ray_hit_start = ray_origin;
+	ray_hit_start.x += ray_dir.x * tmin;
+	ray_hit_start.y += ray_dir.y * tmin;
+	ray_hit_start.z += ray_dir.z * tmin;
+
+	vector_3 ray_hit_end = ray_origin;
+	ray_hit_end.x += ray_dir.x * tmax;
+	ray_hit_end.y += ray_dir.y * tmax;
+	ray_hit_end.z += ray_dir.z * tmax;
+
+	real_type l = (ray_hit_end - ray_hit_start).length();
+
+	return l;
+}
+
+real_type intersect(
+	const vector_3 location,
+	const vector_3 normal,
+	const real_type receiver_distance,
+	const real_type receiver_radius)
+{
+	const vector_3 circle_origin(receiver_distance, 0, 0);
+
+	if (normal.dot(circle_origin) <= 0)
+		return 0.0;
+
+	vector_3 min_location(-receiver_radius + receiver_distance, -receiver_radius, -receiver_radius);
+	vector_3 max_location(receiver_radius + receiver_distance, receiver_radius, receiver_radius);
+
+	real_type tmin = 0, tmax = 0;
+
+	return intersect_AABB(min_location, max_location, location, normal, tmin, tmax);
+}
+
+// Thread-local versions of random functions that take generator and distribution as parameters
+vector_3 random_cosine_weighted_hemisphere(vector_3 normal,
+	std::mt19937& local_gen, std::uniform_real_distribution<real_type>& local_dis)
+{
+	vector_3 r = vector_3(local_dis(local_gen), local_dis(local_gen), 0.0);
+	vector_3 uu = normal.cross(vector_3(0.0, 1.0, 1.0)).normalize();
+	vector_3 vv = uu.cross(normal);
+
+	double ra = sqrt(r.y);
+	double rx = ra * cos(2.0 * pi * r.x);
+	double ry = ra * sin(2.0 * pi * r.x);
+	double rz = sqrt(1.0 - r.y);
+	vector_3 rr = vector_3(uu * rx + vv * ry + normal * rz);
+
+	return rr.normalize();
+}
+
+vector_3 random_unit_vector(std::mt19937& local_gen, std::uniform_real_distribution<real_type>& local_dis)
+{
+	const real_type z = local_dis(local_gen) * 2.0 - 1.0;
+	const real_type a = local_dis(local_gen) * 2.0 * pi;
 
 	const real_type r = sqrt(1.0f - z * z);
 	const real_type x = r * cos(a);
@@ -47,149 +127,245 @@ vector_3 random_unit_vector(void)
 	return vector_3(x, y, z).normalize();
 }
 
-bool intersect_AABB(const vector_3 min_location, const vector_3 max_location, const vector_3& point)
+// Worker function for each thread
+void worker_thread(
+	long long unsigned int n,
+	long long unsigned int start_idx,
+	long long unsigned int end_idx,
+	unsigned int thread_seed,
+	const real_type emitter_radius,
+	const real_type receiver_distance,
+	const real_type receiver_distance_plus,
+	const real_type receiver_radius,
+	real_type& result_count,
+	real_type& result_count_plus)
 {
-	if (min_location.x <= point.x && max_location.x >= point.x &&
-		min_location.y <= point.y && max_location.y >= point.y &&
-		min_location.z <= point.z && max_location.z >= point.z)
+	// Thread-local random number generator
+	std::mt19937 local_gen(thread_seed);
+	std::uniform_real_distribution<real_type> local_dis(0.0, 1.0);
+
+	real_type local_count = 0;
+	real_type local_count_plus = 0;
+
+	// Update progress every N iterations to reduce atomic overhead
+	const long long unsigned int progress_update_interval = 1;
+	long long unsigned int local_progress = 0;
+
+	for (long long unsigned int i = start_idx; i < end_idx; i++)
 	{
-		return true;
+		for (long long unsigned int j = i + 1; j < n; j++)
+		{
+			//if (i == j)
+			//	continue;
+
+			vector_3 location = bh.vertices[i];
+			vector_3 r = bh.vertices[j];
+			vector_3 normal = (location - r).normalize();
+
+
+			//vector_3 location = random_unit_vector(local_gen, local_dis);
+
+			//location.x *= emitter_radius;
+			//location.y *= emitter_radius;
+			//location.z *= emitter_radius;
+
+			//vector_3 surface_normal = location;
+			//surface_normal.normalize();
+
+
+			//// A) Newtonian gravitation
+			////vector_3 normal =
+			////	surface_normal;
+
+			//// B) Schwarzschild gravitation
+			////vector_3 normal = 
+			////	random_cosine_weighted_hemisphere(
+			////		surface_normal, local_gen, local_dis);
+
+			//// C) Emulate Quantum Graphity
+			//vector_3 r = random_unit_vector(local_gen, local_dis);
+
+			//r.x *= emitter_radius;
+			//r.y *= emitter_radius;
+			//r.z *= emitter_radius;
+
+			//vector_3 normal = (location - r).normalize();
+
+
+			local_count += intersect(
+				location, normal,
+				receiver_distance, receiver_radius);
+
+			local_count_plus += intersect(
+				location, normal,
+				receiver_distance_plus, receiver_radius);
+
+			// Update global progress periodically
+			local_progress++;
+			if (local_progress >= progress_update_interval)
+			{
+				global_progress.fetch_add(local_progress, std::memory_order_relaxed);
+				local_progress = 0;
+			}
+		}
 	}
 
-	return false;
+	// Add any remaining progress
+	if (local_progress > 0)
+	{
+		global_progress.fetch_add(local_progress, std::memory_order_relaxed);
+	}
+
+	result_count = local_count;
+	result_count_plus = local_count_plus;
 }
 
-bool intersect(
-	const vector_3 location,
-	const real_type receiver_distance,
-	const real_type receiver_radius)
+// Progress monitor function that runs on main thread
+void progress_monitor(long long unsigned int total_iterations, std::atomic<bool>& done)
 {
-	vector_3 min_location(-receiver_radius + receiver_distance, -receiver_radius, -receiver_radius);
-	vector_3 max_location(receiver_radius + receiver_distance, receiver_radius, receiver_radius);
+	auto start_time = std::chrono::steady_clock::now();
 
-	return intersect_AABB(min_location, max_location, location);
+	while (!done.load(std::memory_order_relaxed))
+	{
+		std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+		long long unsigned int current = global_progress.load(std::memory_order_relaxed);
+		double progress = static_cast<double>(current) / static_cast<double>(total_iterations);
+
+		cout << progress << endl;
+
+		auto now = std::chrono::steady_clock::now();
+		auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
+
+		// Estimate time remaining
+		double eta_seconds = 0;
+		if (progress > 0.001)
+		{
+			eta_seconds = (elapsed / progress) * (1.0 - progress);
+		}
+
+		//cout << "\rProgress: " << fixed << (progress * 100.0) << "% "
+		//	<< "| Elapsed: " << elapsed << "s "
+		//	<< "| ETA: " << static_cast<int>(eta_seconds) << "s    " << flush;
+	}
+
+	cout << "\rProgress: 100.00% | Complete!                              " << endl;
 }
-
 
 real_type get_intersecting_line_density(
+	const long long unsigned int n,
 	const real_type emitter_radius,
 	const real_type receiver_distance,
 	const real_type receiver_distance_plus,
 	const real_type receiver_radius)
 {
-	real_type count = 0;
-	real_type count_plus = 0;
+	// Reset global progress counter
+	global_progress.store(0, std::memory_order_relaxed);
 
-	for (size_t i = 0; i < photons.size(); i++)
+	// Get number of hardware threads
+	unsigned int num_threads = std::thread::hardware_concurrency();
+	if (num_threads == 0) num_threads = 4; // Fallback if detection fails
+
+	cout << "Using " << num_threads << " threads for " << n << " iterations" << endl;
+
+	std::vector<std::thread> threads;
+	std::vector<real_type> thread_counts(num_threads, 0);
+	std::vector<real_type> thread_counts_plus(num_threads, 0);
+
+	// Flag to signal progress monitor to stop
+	std::atomic<bool> done(false);
+
+	// Start progress monitor thread
+	// Total iterations is n * (n-1) due to nested loops (each vertex pairs with n-1 others)
+	long long unsigned int total_iterations = n * (n - 1) / 2;
+	std::thread monitor_thread(progress_monitor, total_iterations, std::ref(done));
+
+	// Calculate work distribution
+	long long unsigned int iterations_per_thread = n / num_threads;
+	long long unsigned int remainder = n % num_threads;
+
+	long long unsigned int current_start = 0;
+
+	for (unsigned int t = 0; t < num_threads; t++)
 	{
-		if (intersect(photons[i].position, receiver_distance, receiver_radius))
-		{
-			//count += 1.0;
+		long long unsigned int thread_iterations = iterations_per_thread;
+		if (t < remainder) thread_iterations++; // Distribute remainder
 
-			count += 1.0 / photons[i].wavelength;
-		}
+		long long unsigned int thread_end = current_start + thread_iterations;
 
-		if (intersect(photons[i].position, receiver_distance_plus, receiver_radius))
-		{
-			//count_plus += 1.0;
+		// Each thread gets a different seed based on thread index
+		unsigned int thread_seed = t;
 
-			count_plus += 1.0 / photons[i].wavelength;
-		}
+		threads.emplace_back(
+			worker_thread,
+			n,
+			current_start,
+			thread_end,
+			thread_seed,
+			emitter_radius,
+			receiver_distance,
+			receiver_distance_plus,
+			receiver_radius,
+			std::ref(thread_counts[t]),
+			std::ref(thread_counts_plus[t])
+		);
+
+		current_start = thread_end;
 	}
 
-	return count_plus / pow(receiver_radius * 2, 3.0) - count / pow(receiver_radius * 2, 3.0);
+	// Wait for all worker threads to complete
+	for (auto& t : threads)
+	{
+		t.join();
+	}
+
+	// Signal monitor thread to stop and wait for it
+	done.store(true, std::memory_order_relaxed);
+	monitor_thread.join();
+
+	// Aggregate results
+	real_type total_count = 0;
+	real_type total_count_plus = 0;
+
+	for (unsigned int t = 0; t < num_threads; t++)
+	{
+		total_count += thread_counts[t];
+		total_count_plus += thread_counts_plus[t];
+	}
+
+	return total_count_plus - total_count;
 }
 
 int main(int argc, char** argv)
 {
-	// Field line count
-	const long long unsigned int n = 100;
+	ofstream outfile("ratio");
 
 	const real_type emitter_radius_geometrized =
-		sqrt(n * log(2.0) / pi);
+		sqrt(1e5 * log(2.0) / pi);
 
 	const real_type receiver_radius_geometrized =
-		emitter_radius_geometrized * 1.0; // Minimum one Planck unit
+		emitter_radius_geometrized * 0.01; // Minimum one Planck unit
 
 	const real_type emitter_area_geometrized =
 		4.0 * pi
 		* emitter_radius_geometrized
 		* emitter_radius_geometrized;
 
+	// Field line count
+	const real_type n_geometrized =
+		emitter_area_geometrized
+		/ (log(2.0) * 4.0);
+
 	const real_type emitter_mass_geometrized =
 		emitter_radius_geometrized
 		/ 2.0;
 
-
-
-
-	real_type max_wavelength = 0;
-
-	for (long long unsigned int i = 0; i < n; i++)
-		bh.vertices.push_back(random_unit_vector() * emitter_radius_geometrized);
-
-	camera_w = emitter_radius_geometrized * 5.0;
-
-	long long unsigned int num_repulsion_rounds = 10;
-
-	for (size_t x = 0; x < num_repulsion_rounds; x++)
-	{
-		//cout << x << " " << num_repulsion_rounds << endl;
-
-		vector<vector_3> backup_points = bh.vertices;
-
-		for (long long unsigned int i = 0; i < n; i++)
-		{
-			vector_3 a(0, 0, 0);
-
-			for (long long unsigned int j = 0; j < n; j++)
-			{
-				if (i == j)
-					continue;
-
-				custom_math::vector_3 grav_dir = backup_points[j] - backup_points[i];
-
-				double distance = grav_dir.length();
-				grav_dir.normalize();
-				custom_math::vector_3 accel = -grav_dir / pow(distance, 1.0);
-
-				a += accel;
-			}
-
-			bh.vertices[i] += a;
-			bh.vertices[i].normalize();
-			bh.vertices[i] *= emitter_radius_geometrized;
-		}
-	}
-
-	for (long long unsigned int i = 0; i < n; i++)
-	{
-		for (long long unsigned int j = i + 1; j < n; j++)
-		{
-			bi_directional_edge e;
-
-			e.locations = pair<vector_3, vector_3>(bh.vertices[i], bh.vertices[j]);
-
-			const real_type wavelength = (e.locations.first - e.locations.second).length();
-
-			e.wavelength = wavelength;
-			e.last_emitted = 0;
-
-			bh.edges.push_back(e);
-
-			if (wavelength > max_wavelength)
-				max_wavelength = wavelength;
-		}
-	}
-
-
-	const real_type start_pos =
+	real_type start_pos =
 		emitter_radius_geometrized
 		+ receiver_radius_geometrized;
 
-	const real_type end_pos = start_pos * 10;
+	real_type end_pos = start_pos * 10;
 
-	//swap(end_pos, start_pos);
 
 	const size_t pos_res = 10; // Minimum 2 steps
 
@@ -201,68 +377,62 @@ int main(int argc, char** argv)
 		receiver_radius_geometrized;
 
 
-	while (true)
-	{
-		const double dt = 0.001;
 
-		for (size_t i = 0; i < bh.edges.size(); i++)
-		{
-			std::chrono::high_resolution_clock::time_point t = std::chrono::high_resolution_clock::now();
-			std::chrono::duration<real_type> elapsed = t - app_start_time;
-			const real_type tf = elapsed.count();
 
-			if (bh.edges[i].last_emitted == 0 || tf >= bh.edges[i].last_emitted + bh.edges[i].wavelength)
-			{
-				vector_3 mid_way = (bh.edges[i].locations.first + bh.edges[i].locations.second) * 0.5;
-				vector_3 dir = bh.edges[i].locations.first - bh.edges[i].locations.second;
-				dir.normalize();
 
-				messenger_particle p;
-				p.wavelength = bh.edges[i].wavelength;
 
-				p.position = mid_way;
-				p.velocity = dir;
-				photons.push_back(p);
+	std::mt19937 local_gen(0);
+	std::uniform_real_distribution<real_type> local_dis(0.0, 1.0);
 
-				p.position = mid_way;
-				p.velocity = -dir;
-				photons.push_back(p);
+	long long unsigned int n = static_cast<long long unsigned int>(n_geometrized);
 
-				bh.edges[i].last_emitted = tf;
-			}
-		}
+	for (long long unsigned int i = 0; i < n; i++)
+		bh.vertices.push_back(random_unit_vector(local_gen, local_dis) * emitter_radius_geometrized);
 
-		bool is_max_wavelength_photon = false;
+	//long long unsigned int num_repulsion_rounds = 10;
 
-		for (vector<messenger_particle>::iterator i = photons.begin(); i != photons.end(); i++)
-		{
-			i->position += i->velocity * dt;
+	//for (size_t x = 0; x < num_repulsion_rounds; x++)
+	//{
+	//	//cout << x << " " << num_repulsion_rounds << endl;
 
-			if (i->position.length() >= end_pos * 2)
-			{
-				if (i->wavelength == max_wavelength)
-					is_max_wavelength_photon = true;
+	//	vector<vector_3> backup_points = bh.vertices;
 
-				i = photons.erase(i);
-			}
-			else
-			{
-				if (i == photons.begin())
-					cout << i->position.length() / (end_pos * 2) << endl;
-			}
+	//	for (long long unsigned int i = 0; i < n; i++)
+	//	{
+	//		vector_3 a(0, 0, 0);
 
-			if (is_max_wavelength_photon == true)
-				break;
-		}
+	//		for (long long unsigned int j = 0; j < n; j++)
+	//		{
+	//			if (i == j)
+	//				continue;
 
-		if (is_max_wavelength_photon == true)
-			break;
-	}
+	//			vector_3 grav_dir = backup_points[j] - backup_points[i];
+
+	//			real_type distance = grav_dir.length();
+	//			grav_dir.normalize();
+	//			vector_3 accel = -grav_dir / pow(distance, 1.0);
+
+	//			a += accel;
+	//		}
+
+	//		bh.vertices[i] += a;
+	//		bh.vertices[i].normalize();
+	//		bh.vertices[i] *= emitter_radius_geometrized;
+	//	}
+	//}
+
+
+
+
+
+
 
 
 
 	for (size_t i = 0; i < pos_res; i++)
 	{
+		cout << "\n=== Step " << (i + 1) << " of " << pos_res << " ===" << endl;
+
 		const real_type receiver_distance_geometrized =
 			start_pos + i * pos_step_size;
 
@@ -272,6 +442,7 @@ int main(int argc, char** argv)
 		// beta function
 		const real_type collision_count_plus_minus_collision_count =
 			get_intersecting_line_density(
+				static_cast<long long unsigned int>(n_geometrized),
 				emitter_radius_geometrized,
 				receiver_distance_geometrized,
 				receiver_distance_plus_geometrized,
@@ -284,19 +455,13 @@ int main(int argc, char** argv)
 
 		// g variable
 		real_type gradient_strength =
-			-gradient_integer;
-		///
-		//(receiver_radius_geometrized
-		//	* receiver_radius_geometrized
-		//	);
-
-	//cout << gradient_strength << " " << n_geometrized / (2 * pow(receiver_distance_geometrized, 3.0)) << endl;
-	//cout << gradient_strength / (n_geometrized / (2 * pow(receiver_distance_geometrized, 3.0))) << endl;
-
+			-gradient_integer
+			/
+			(4.0 * pow(receiver_distance_geometrized, 2.0));
 
 		const real_type a_Newton_geometrized =
 			sqrt(
-				n * log(2.0)
+				n_geometrized * log(2.0)
 				/
 				(4.0 * pi *
 					pow(receiver_distance_geometrized, 4.0))
@@ -305,12 +470,6 @@ int main(int argc, char** argv)
 		const real_type a_flat_geometrized =
 			gradient_strength * receiver_distance_geometrized * log(2)
 			/ (8.0 * emitter_mass_geometrized);
-
-
-		//const real_type g_approx = n_geometrized / (2 * pow(receiver_distance_geometrized, 3.0));
-		//const real_type a_approx_geometrized =
-		//	g_approx * receiver_distance_geometrized * log(2)
-		//	/ (8.0 * emitter_mass_geometrized);
 
 
 		const real_type dt_Schwarzschild = sqrt(1 - emitter_radius_geometrized / receiver_distance_geometrized);
@@ -325,448 +484,11 @@ int main(int argc, char** argv)
 		cout << endl;
 		cout << a_Newton_geometrized / a_flat_geometrized << endl;
 		cout << endl << endl;
+
+		outfile << receiver_distance_geometrized <<
+			" " <<
+			(a_Schwarzschild_geometrized / a_flat_geometrized) <<
+			endl;
 	}
 
-
-
-
-	return 0;
-
-
-	cout << setprecision(20) << endl;
-
-	glutInit(&argc, argv);
-	init_opengl(win_x, win_y);
-	glutReshapeFunc(reshape_func);
-	glutIdleFunc(idle_func);
-	glutDisplayFunc(display_func);
-	glutKeyboardFunc(keyboard_func);
-	glutMouseFunc(mouse_func);
-	glutMotionFunc(motion_func);
-	glutPassiveMotionFunc(passive_motion_func);
-	//glutIgnoreKeyRepeat(1);
-	glutMainLoop();
-	glutDestroyWindow(win_id);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-	//for (size_t i = 0; i < pos_res; i++)
-	//{
-	//	const real_type receiver_distance_geometrized =
-	//		start_pos + i * pos_step_size;
-
-	//	const real_type receiver_distance_plus_geometrized =
-	//		receiver_distance_geometrized + epsilon;
-
-	//	// beta function
-	//	const real_type collision_count_plus_minus_collision_count =
-	//		get_intersecting_line_density(
-	//			static_cast<long long unsigned int>(n_geometrized),
-	//			emitter_radius_geometrized,
-	//			receiver_distance_geometrized,
-	//			receiver_distance_plus_geometrized,
-	//			receiver_radius_geometrized);
-
-	//	// alpha variable
-	//	const real_type gradient_integer =
-	//		collision_count_plus_minus_collision_count
-	//		/ epsilon;
-
-	//	// g variable
-	//	real_type gradient_strength =
-	//		-gradient_integer
-	//		/
-	//		(receiver_radius_geometrized
-	//			* receiver_radius_geometrized
-	//			);
-
-	//	//cout << gradient_strength << " " << n_geometrized / (2 * pow(receiver_distance_geometrized, 3.0)) << endl;
-	//	//cout << gradient_strength / (n_geometrized / (2 * pow(receiver_distance_geometrized, 3.0))) << endl;
-
-
-	//	const real_type a_Newton_geometrized =
-	//		sqrt(
-	//			n_geometrized * log(2.0)
-	//			/
-	//			(4.0 * pi *
-	//				pow(receiver_distance_geometrized, 4.0))
-	//		);
-
-	//	const real_type a_flat_geometrized =
-	//		gradient_strength * receiver_distance_geometrized * log(2)
-	//		/ (8.0 * emitter_mass_geometrized);
-
-
-	//	//const real_type g_approx = n_geometrized / (2 * pow(receiver_distance_geometrized, 3.0));
-	//	//const real_type a_approx_geometrized =
-	//	//	g_approx * receiver_distance_geometrized * log(2)
-	//	//	/ (8.0 * emitter_mass_geometrized);
-
-
-	//	const real_type dt_Schwarzschild = sqrt(1 - emitter_radius_geometrized / receiver_distance_geometrized);
-
-	//	const real_type a_Schwarzschild_geometrized =
-	//		emitter_radius_geometrized / (pi * pow(receiver_distance_geometrized, 2.0) * dt_Schwarzschild);
-
-	//	cout << "a_Schwarzschild_geometrized " << a_Schwarzschild_geometrized << endl;
-	//	cout << "a_Newton_geometrized " << a_Newton_geometrized << endl;
-	//	cout << "a_flat_geometrized " << a_flat_geometrized << endl;
-	//	cout << a_Schwarzschild_geometrized / a_flat_geometrized << endl;
-	//	cout << endl;
-	//	cout << a_Newton_geometrized / a_flat_geometrized << endl;
-	//	cout << endl << endl;
-
-	//	outfile << receiver_distance_geometrized <<
-	//		" " <<
-	//		(a_Schwarzschild_geometrized / a_flat_geometrized) <<
-	//		endl;
-	//}
-
-}
-
-
-
-
-
-void idle_func(void)
-{
-	//const double dt = 0.001;
-
-	//for (size_t i = 0; i < bh.edges.size(); i++)
-	//{
-	//	std::chrono::high_resolution_clock::time_point t = std::chrono::high_resolution_clock::now();
-	//	std::chrono::duration<real_type> elapsed = t - app_start_time;
-	//	const real_type tf = elapsed.count();
-
-	//	if (bh.edges[i].last_emitted == 0 || tf >= bh.edges[i].last_emitted + bh.edges[i].wavelength)
-	//	{
-	//		vector_3 mid_way = (bh.edges[i].locations.first + bh.edges[i].locations.second) * 0.5;
-	//		vector_3 dir = bh.edges[i].locations.first - bh.edges[i].locations.second;
-	//		dir.normalize();
-
-	//		messenger_particle p;
-	//		p.wavelength = bh.edges[i].wavelength;
-
-	//		p.position = mid_way;
-	//		p.velocity = dir;
-	//		photons.push_back(p);
-
-	//		p.position = mid_way;
-	//		p.velocity = -dir;
-	//		photons.push_back(p);
-
-	//		bh.edges[i].last_emitted = tf;
-	//	}
-	//}
-
-	//for (size_t i = 0; i < photons.size(); i++)
-	//	photons[i].position += photons[i].velocity * dt;
-
-	glutPostRedisplay();
-}
-
-void init_opengl(const int& width, const int& height)
-{
-	win_x = width;
-	win_y = height;
-
-	if (win_x < 1)
-		win_x = 1;
-
-	if (win_y < 1)
-		win_y = 1;
-
-	glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE | GLUT_DEPTH);
-	glutInitWindowPosition(0, 0);
-	glutInitWindowSize(win_x, win_y);
-	win_id = glutCreateWindow("orbit");
-
-	glEnable(GL_DEPTH_TEST);
-	glDepthFunc(GL_LEQUAL);
-	glDepthMask(GL_TRUE);
-	glShadeModel(GL_SMOOTH);
-	glEnable(GL_CULL_FACE);
-	glCullFace(GL_BACK);
-
-	glClearColor((float)background_colour.x, (float)background_colour.y, (float)background_colour.z, 1);
-	glClearDepth(1.0f);
-
-	main_camera.Set(0, 0, camera_w, camera_fov, win_x, win_y, camera_near, camera_far);
-}
-
-void reshape_func(int width, int height)
-{
-	win_x = width;
-	win_y = height;
-
-	if (win_x < 1)
-		win_x = 1;
-
-	if (win_y < 1)
-		win_y = 1;
-
-	glutSetWindow(win_id);
-	glutReshapeWindow(win_x, win_y);
-	glViewport(0, 0, win_x, win_y);
-
-	main_camera.Set(main_camera.u, main_camera.v, main_camera.w, main_camera.fov, win_x, win_y, camera_near, camera_far);
-}
-
-// Text drawing code originally from "GLUT Tutorial -- Bitmap Fonts and Orthogonal Projections" by A R Fernandes
-void render_string(int x, const int y, void* font, const string& text)
-{
-	for (size_t i = 0; i < text.length(); i++)
-	{
-		glRasterPos2i(x, y);
-		glutBitmapCharacter(font, text[i]);
-		x += glutBitmapWidth(font, text[i]) + 1;
-	}
-}
-// End text drawing code.
-
-void draw_objects(void)
-{
-	glDisable(GL_LIGHTING);
-
-	glPushMatrix();
-
-
-	glPointSize(2.0);
-	glLineWidth(1.0f);
-
-
-	glBegin(GL_POINTS);
-
-	glColor3f(1.0, 1.0, 1.0);
-
-	for (size_t i = 0; i < bh.vertices.size(); i++)
-		glVertex3d(bh.vertices[i].x, bh.vertices[i].y, bh.vertices[i].z);
-
-	glEnd();
-
-
-
-	glBegin(GL_POINTS);
-
-	glColor3f(1.0, 0.5, 0.0);
-
-	for (size_t i = 0; i < photons.size(); i++)
-		glVertex3d(photons[i].position.x, photons[i].position.y, photons[i].position.z);
-
-	glEnd();
-
-
-	glLineWidth(1.0f);
-
-
-	// If we do draw the axis at all, make sure not to draw its outline.
-	if (true == draw_axis)
-	{
-		glBegin(GL_LINES);
-
-		glColor3f(1, 0, 0);
-		glVertex3f(0, 0, 0);
-		glVertex3f(1, 0, 0);
-		glColor3f(0, 1, 0);
-		glVertex3f(0, 0, 0);
-		glVertex3f(0, 1, 0);
-		glColor3f(0, 0, 1);
-		glVertex3f(0, 0, 0);
-		glVertex3f(0, 0, 1);
-
-		glColor3f(0.5, 0.5, 0.5);
-		glVertex3f(0, 0, 0);
-		glVertex3f(-1, 0, 0);
-		glVertex3f(0, 0, 0);
-		glVertex3f(0, -1, 0);
-		glVertex3f(0, 0, 0);
-		glVertex3f(0, 0, -1);
-
-		glEnd();
-	}
-
-	glPopMatrix();
-}
-
-
-
-
-void display_func(void)
-{
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-	// Draw the model's components using OpenGL/GLUT primitives.
-	draw_objects();
-
-	if (true == draw_control_list)
-	{
-		// Text drawing code originally from "GLUT Tutorial -- Bitmap Fonts and Orthogonal Projections" by A R Fernandes
-		// http://www.lighthouse3d.com/opengl/glut/index.php?bmpfontortho
-		glMatrixMode(GL_PROJECTION);
-		glPushMatrix();
-		glLoadIdentity();
-		gluOrtho2D(0, win_x, 0, win_y);
-		glScaled(1, -1, 1); // Neat. :)
-		glTranslated(0, -win_y, 0); // Neat. :)
-		glMatrixMode(GL_MODELVIEW);
-		glPushMatrix();
-		glLoadIdentity();
-
-		glColor3d(control_list_colour.x, control_list_colour.y, control_list_colour.z);
-
-		size_t break_size = 22;
-		size_t start = 20;
-		ostringstream oss;
-
-		render_string(10, static_cast<int>(start), GLUT_BITMAP_HELVETICA_18, string("Mouse controls:"));
-		render_string(10, static_cast<int>(start + 1 * break_size), GLUT_BITMAP_HELVETICA_18, string("  LMB + drag: Rotate camera"));
-		render_string(10, static_cast<int>(start + 2 * break_size), GLUT_BITMAP_HELVETICA_18, string("  RMB + drag: Zoom camera"));
-
-		render_string(10, static_cast<int>(start + 4 * break_size), GLUT_BITMAP_HELVETICA_18, string("Keyboard controls:"));
-		render_string(10, static_cast<int>(start + 5 * break_size), GLUT_BITMAP_HELVETICA_18, string("  w: Draw axis"));
-		render_string(10, static_cast<int>(start + 6 * break_size), GLUT_BITMAP_HELVETICA_18, string("  e: Draw text"));
-		render_string(10, static_cast<int>(start + 7 * break_size), GLUT_BITMAP_HELVETICA_18, string("  u: Rotate camera +u"));
-		render_string(10, static_cast<int>(start + 8 * break_size), GLUT_BITMAP_HELVETICA_18, string("  i: Rotate camera -u"));
-		render_string(10, static_cast<int>(start + 9 * break_size), GLUT_BITMAP_HELVETICA_18, string("  o: Rotate camera +v"));
-		render_string(10, static_cast<int>(start + 10 * break_size), GLUT_BITMAP_HELVETICA_18, string("  p: Rotate camera -v"));
-
-
-
-		custom_math::vector_3 eye = main_camera.eye;
-		custom_math::vector_3 eye_norm = eye;
-		eye_norm.normalize();
-
-		oss.clear();
-		oss.str("");
-		oss << "Camera position: " << eye.x << ' ' << eye.y << ' ' << eye.z;
-		render_string(10, static_cast<int>(win_y - 2 * break_size), GLUT_BITMAP_HELVETICA_18, oss.str());
-
-		oss.clear();
-		oss.str("");
-		oss << "Camera position (normalized): " << eye_norm.x << ' ' << eye_norm.y << ' ' << eye_norm.z;
-		render_string(10, static_cast<int>(win_y - break_size), GLUT_BITMAP_HELVETICA_18, oss.str());
-
-		glPopMatrix();
-		glMatrixMode(GL_PROJECTION);
-		glPopMatrix();
-		// End text drawing code.
-	}
-
-	glFlush();
-	glutSwapBuffers();
-}
-
-void keyboard_func(unsigned char key, int x, int y)
-{
-	switch (tolower(key))
-	{
-	case 'w':
-	{
-		draw_axis = !draw_axis;
-		break;
-	}
-	case 'e':
-	{
-		draw_control_list = !draw_control_list;
-		break;
-	}
-	case 'u':
-	{
-		main_camera.u -= u_spacer;
-		main_camera.Set();
-		break;
-	}
-	case 'i':
-	{
-		main_camera.u += u_spacer;
-		main_camera.Set();
-		break;
-	}
-	case 'o':
-	{
-		main_camera.v -= v_spacer;
-		main_camera.Set();
-		break;
-	}
-	case 'p':
-	{
-		main_camera.v += v_spacer;
-		main_camera.Set();
-		break;
-	}
-
-	default:
-		break;
-	}
-}
-
-void mouse_func(int button, int state, int x, int y)
-{
-	if (GLUT_LEFT_BUTTON == button)
-	{
-		if (GLUT_DOWN == state)
-			lmb_down = true;
-		else
-			lmb_down = false;
-	}
-	else if (GLUT_MIDDLE_BUTTON == button)
-	{
-		if (GLUT_DOWN == state)
-			mmb_down = true;
-		else
-			mmb_down = false;
-	}
-	else if (GLUT_RIGHT_BUTTON == button)
-	{
-		if (GLUT_DOWN == state)
-			rmb_down = true;
-		else
-			rmb_down = false;
-	}
-}
-
-void motion_func(int x, int y)
-{
-	int prev_mouse_x = mouse_x;
-	int prev_mouse_y = mouse_y;
-
-	mouse_x = x;
-	mouse_y = y;
-
-	int mouse_delta_x = mouse_x - prev_mouse_x;
-	int mouse_delta_y = prev_mouse_y - mouse_y;
-
-	if (true == lmb_down && (0 != mouse_delta_x || 0 != mouse_delta_y))
-	{
-		main_camera.u -= static_cast<float>(mouse_delta_y) * u_spacer;
-		main_camera.v += static_cast<float>(mouse_delta_x) * v_spacer;
-	}
-	else if (true == rmb_down && (0 != mouse_delta_y))
-	{
-		main_camera.w -= static_cast<float>(mouse_delta_y) * w_spacer;
-
-		if (main_camera.w < 1.1f)
-			main_camera.w = 1.1f;
-
-	}
-
-	main_camera.Set(); // Calculate new camera vectors.
-}
-
-void passive_motion_func(int x, int y)
-{
-	mouse_x = x;
-	mouse_y = y;
 }
